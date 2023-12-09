@@ -3,8 +3,14 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from cargaArchivoCSV import dic_lista_productos
 from collections import deque
+import time
 
+#obtener datos del CSV
 productos = dic_lista_productos()
+
+# Imprimir el estado actual de las colas
+colas_reabastecimiento = {producto['nombre']: deque([producto.copy()]) for producto in productos}
+#print(colas_reabastecimiento)
 
 # Imprimir inventario inicial
 print("Inventario inicial por producto:")
@@ -12,6 +18,10 @@ inventario_strings = []
 for producto in productos:
     inventario_strings = [f"{producto['nombre']}: {producto['inventario']} unidades" for producto in productos]
 print(", ".join(inventario_strings))
+
+# Solicitar entrada del usuario para tasa_reabastecimiento y meses_simulacion
+tasa_reabastecimiento = int(input("Ingrese la tasa de reabastecimiento: "))
+meses_simulacion = int(input("Ingrese la cantidad de meses para simular: "))
 
 def simular_productos_perecederos(productos, tasa_reabastecimiento, meses_simulacion):
     fecha_actual = datetime.now()
@@ -29,22 +39,33 @@ def simular_productos_perecederos(productos, tasa_reabastecimiento, meses_simula
         productos_vendidos_mes = {}  # Diccionario para contar la cantidad de productos vendidos por tipo en el mes actual
         id_producto_vencidos = {}
 
-        for producto in productos:
-            fecha_vecimiento = datetime.strptime(producto['fecha_vencimiento'], '%Y-%m-%d')
-            if fecha_vecimiento <= fecha_actual:
-                print(f"Mes {mes}, Producto {producto['nombre']}: Producto vencido, inventario: {producto['inventario']}, se ha perdido, Fecha actual: {fecha_actual.strftime('%Y-%m-%d')}")
-                if(producto['estado_producto'] == 0):
-                    perdida_mes += producto['inventario'] * producto['precio_producto']  # Calcular la pérdida por el inventario restante
-                    productos_vencidos_mes[producto['nombre']] = producto['inventario']  # Registrar la cantidad de productos vencidos por tipo
-                    # Calcular el reabastecimiento en función de la cantidad restante en el inventario vencido
-                    reabastecimiento = min(tasa_reabastecimiento, producto['inventario'])
-                    producto['inventario'] = 0
-                    # Hacer un nuevo pedido para el producto vencido
-                    dias_reabastecimiento = np.random.randint(150, 180)
-                    producto['inventario'] += tasa_reabastecimiento
-                    producto['fecha_vencimiento'] = (fecha_actual + timedelta(days=dias_reabastecimiento)).strftime('%Y-%m-%d')
-                    producto['estado_producto'] = 1
-                    continue  # Saltar el procesamiento del producto vencido
+        for producto_nombre, cola_producto in colas_reabastecimiento.items():
+            # Obtener el primer elemento de la cola (si existe)
+            if cola_producto:
+                producto = cola_producto[0]
+                fecha_vencimiento = datetime.strptime(producto['fecha_vencimiento'], '%Y-%m-%d')
+
+                fecha_vecimiento = datetime.strptime(producto['fecha_vencimiento'], '%Y-%m-%d')
+                if fecha_vecimiento <= fecha_actual:
+                    print(f"Mes {mes}, Producto {producto['nombre']}: Producto vencido, inventario: {producto['inventario']}, se ha perdido, Fecha actual: {fecha_actual.strftime('%Y-%m-%d')}")
+                    if(producto['estado_producto'] == 0):
+                        perdida_mes += producto['inventario'] * producto['precio_producto']  # Calcular la pérdida por el inventario restante
+                        productos_vencidos_mes[producto['nombre']] = producto['inventario']  # Registrar la # Obtener la cantidad de productos que quedaron sin venderse antes de eliminar el elemento
+                        # Obtener la cantidad de productos que quedaron sin venderse antes de eliminar el elemento
+                        inventario_restante = producto['inventario']
+                        print(f"El producto {producto['nombre']} ha vencido. Cantidad no vendida: {inventario_restante} unidades.")
+
+                        # Eliminar el producto vencido de la cola
+                        producto_vencido = cola_producto.popleft()
+                        print(f"El producto {producto_vencido['nombre']} ha sido eliminado de la cola.")
+                        
+                        # Hacer un nuevo pedido para el producto vencido
+                        nuevo_producto = producto.copy()
+                        nuevo_producto['inventario'] += tasa_reabastecimiento
+                        nuevo_producto['fecha_vencimiento'] = (fecha_actual + timedelta(days=np.random.randint(150, 300))).strftime('%Y-%m-%d')
+                        nuevo_producto['estado_producto'] = 0  # Actualizar el estado del nuevo producto a no vencido
+                        cola_producto.append(nuevo_producto)
+                        print(f"Se ha realizado un nuevo pedido para el producto {nuevo_producto['nombre']}.")
 
             # Simular ventas y ajustar inventario
             if(producto['estado_producto'] == 0):
@@ -58,13 +79,17 @@ def simular_productos_perecederos(productos, tasa_reabastecimiento, meses_simula
                 producto['ganancias_acumuladas'] += ventas * producto['precio_producto']
                 productos_vendidos_mes[producto['nombre']] = ventas  # Registrar la cantidad de productos vendidos por tipo en este mes
 
-            # Reabastecer el inventario si es necesario
-            if producto['inventario'] <= tasa_reabastecimiento:
-                # Calcular el reabastecimiento en función de la tasa_reabastecimiento
-                reabastecimiento = tasa_reabastecimiento
-                producto['inventario'] += reabastecimiento
-                # Hacer un nuevo pedido para el producto reabastecido
-                producto['fecha_vencimiento'] = (fecha_actual + timedelta(days=np.random.randint(150, 300))).strftime('%Y-%m-%d')
+                # Reabastecer el inventario si es necesario
+                if producto['inventario'] <= tasa_reabastecimiento:
+                    # Calcular el reabastecimiento en función de la tasa_reabastecimiento
+                    reabastecimiento = tasa_reabastecimiento
+                    producto['inventario'] += reabastecimiento
+                    # Hacer un nuevo pedido para el producto reabastecido
+                    nuevo_producto = producto.copy()
+                    nuevo_producto['fecha_vencimiento'] = (fecha_actual + timedelta(days=np.random.randint(150, 300))).strftime('%Y-%m-%d')
+                    cola_producto.append(nuevo_producto)
+                    print(f"Mes {mes}, Producto {producto['nombre']}: Se ha hecho un nuevo pedido. Inventario actualizado a {producto['inventario']} unidades.")
+                    
 
             print(f"Mes {mes}, Producto {producto['nombre']}: Demand: {demanda}, Ventas: {ventas}, Inventario: {producto['inventario']}, Ganancias: {producto['ganancias_acumuladas']}, Fecha de vencimiento: {fecha_vecimiento}, Fecha actual: {fecha_actual.strftime('%Y-%m-%d')}")
 
@@ -89,6 +114,8 @@ def simular_productos_perecederos(productos, tasa_reabastecimiento, meses_simula
                 productos_vendidos_acumulados[nombre] += cantidad
             else:
                 productos_vendidos_acumulados[nombre] = cantidad
+        
+        time.sleep(1)
 
     # Imprimir la pérdida acumulada al final de la simulación
     print(f"Pérdida acumulada al final de la simulación: {perdida_acumulada}")
@@ -138,6 +165,5 @@ def simular_productos_perecederos(productos, tasa_reabastecimiento, meses_simula
 
     plt.tight_layout()
     plt.show()
-
-# Simular la gestión de productos perecederos
-simular_productos_perecederos(productos, tasa_reabastecimiento=20, meses_simulacion=6)
+    
+simular_productos_perecederos(productos, tasa_reabastecimiento, meses_simulacion)
